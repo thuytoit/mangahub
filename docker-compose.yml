@@ -1,0 +1,65 @@
+# Docker Compose allows starting the application with command: "docker compose up"
+#
+# No need for manual "go run cmd/server/main.go"
+#
+# This means anyone can run MangaHub without installing Go first —
+# they only need Docker installed.
+#
+# To use this file:
+#   docker compose up --build       <- first time (builds the container)
+#   docker compose up               <- subsequent runs
+#   docker compose down             <- stop everything
+#
+# The app will be available at the same ports as always:
+#   HTTP  → http://localhost:8080
+#   TCP   → localhost:9090
+#   UDP   → localhost:9091
+#   gRPC  → localhost:9092
+#   WS    → ws://localhost:9093
+
+version: "3.9"
+
+services:
+
+  # This is the MangaHub server service.
+  mangahub-server:
+    # "build: ." means "build a Docker image using the Dockerfile
+    # in the current directory (the dot means current folder)"
+    build: .
+
+    # A friendly name shown in logs
+    container_name: mangahub-server
+
+    # Port mapping: "host:container"
+    # This means "connect port 8080 on your computer to port 8080 inside the container"
+    # Without this, the container is isolated and you cannot reach it from outside.
+    ports:
+      - "8080:8080"   # HTTP REST API
+      - "9090:9090"   # TCP Sync Server
+      - "9091:9091/udp" # UDP Notification Server (note: UDP needs /udp)
+      - "9092:9092"   # gRPC Service
+      - "9093:9093"   # WebSocket Chat
+
+    # Environment variables — like settings you pass to the program.
+    # These override the default flag values in cmd/server/main.go.
+    environment:
+      - JWT_SECRET=mangahub-secret-change-me-in-production
+
+    # Volume mounting: "host_path:container_path"
+    # This connects a folder on YOUR computer to a folder inside the container.
+    # Here we mount the "data" folder so the container can read manga.json,
+    # and the database file is stored on your computer (not lost when container stops).
+    volumes:
+      - ./data:/app/data         # manga JSON seed files
+      - ./mangahub.db:/app/mangahub.db  # persist the database across restarts
+
+    # Restart policy: if the server crashes, Docker will automatically restart it.
+    restart: unless-stopped
+
+    # Health check: Docker periodically pings /health to make sure the server is alive.
+    # If it stops responding, Docker marks it as unhealthy.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s   # check every 30 seconds
+      timeout: 10s    # give it 10 seconds to respond
+      retries: 3      # mark unhealthy after 3 failures
